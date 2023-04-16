@@ -59,3 +59,120 @@ start = "python src/index.py"
 
 Запускаем наш код командой `pipenv run start`.
 Если все сделано правильно, то в консоле мы должны увидеть html-код страницы `synergy.ru`
+
+# 2. Получение страницы с расписанием
+
+## 2.1. Создание переменных окружения с секретами для авторизации на сайте
+
+Создадим в корне проекта файл `.local.env` с таким содержимым:
+
+```
+LMS_USERNAME="твой_логин_здесь"
+LMS_PASSWORD="твой_пароль_здесь"
+```
+
+При старте кода, `pipenv` автоматически прочитает этот файл, что позволит нам получить указанные здесь значения в коде:
+
+```python
+os.getenv('LMS_USERNAME')
+```
+
+Мы не добавили наши "секреты" в код, поскольку это считается плохой практикой. Потому что обычно код хранится в репозиториях, соответственно, если хранить "секреты" в коде, то их сможет прочитать любой, кто имеет доступ к репозиторию.
+
+Но мы же все равно записали наши секреты, просто не в код, а рядом в файл. Так вот, для того чтобы этот файл не попал в репозиторий заигнорим его. Для этого в корне проекта нужно создать вот такой файл `.gitignore`:
+
+```
+*.env
+```
+
+`*.env` это маска файла которая говорит о том, что все файлы, имена которых заканчиваются на `.env` должны быть проигнорированы и не выгружены в репозиторий.
+
+## 2.2. Определение окна расписания для запроса
+
+Установим пакеты `datetime` и `dateutil`
+
+```bash
+pipenv install datetime
+pipenv install python-dateutil
+```
+
+Перепишем код в `index.py` на такой:
+
+```python
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from get_schedule_html import get_schedule_html
+
+def handler():
+    # вычисляем начало текущего дня (на компьютере)
+    fromDate = datetime.today().replace(hour = 0, minute = 0)
+    # вычисляем конец дня ровно через месяц от текущего
+    toDate = (datetime.today() + relativedelta(months = 1)).replace(hour = 23, minute = 59)
+
+    # запрашиваем html-код страницы расписания в выбранном окне
+    schedule_html = get_schedule_html(fromDate, toDate)
+
+    print(schedule_html)
+
+# вызываем функцию handler() при вызове файла
+if __name__ == '__main__':
+    handler()
+```
+
+## 2.3. Запрашиваем страницу с расписанием
+
+Создадим в папке `src` файл `get_schedule_html.py` с таким содержимым:
+
+```python
+import requests
+import os
+from datetime import date
+
+def get_schedule_html(fromDate: date, toDate: date):
+    # создаем сессию, поскольку для того чтобы запросить страницу с расписанием
+    # нужно быть авторизованным
+    s = requests.Session()
+
+    print('logining...')
+
+    # этот запрос не лишний, он нужен из-за внутреней логики сервера lms
+    s.get('https://lms.synergy.ru/ping/?status=1')
+    # заходим на страницу lms
+    s.get('https://lms.synergy.ru/')
+    # отправляем запрос на авторизацию
+    # (он отправляется страницей), когда мы заполняем форму и жмем кнопку "войти"
+    s.post(
+        url = 'https://lms.synergy.ru/user/login',
+        data = {
+            # подставляем значения, которые указали в файле .local.env
+            'popupUsername': os.getenv('LMS_USERNAME'),
+            'popupPassword': os.getenv('LMS_PASSWORD'),
+            'currentUrl': '',
+            'popupRemember': '',
+        }
+    )
+
+    print('logined sucessfully')
+
+    # отправляем запрос с настройкой окна расписания
+    # (этот запрос отправляется, когда мы на странице расписания указываем его окно)
+    s.post(url = 'https://lms.synergy.ru/schedule/academ', data = {
+        'mySchedule': 1,
+        'employee': 1,
+        'group': '',
+        'discipline': '',
+        'time_check': 1,
+        'discipline_check': 1,
+        'place_check': 1,
+        'type_check': 1,
+        'teacher_check': 1,
+        'dateFrom': fromDate.strftime("%d.%m.%Y"),
+        'dateTo': toDate.strftime("%d.%m.%Y"),
+        'doSrch': 1
+    })
+
+    # запрашиваем страницу с расписанием
+    return s.get('https://lms.synergy.ru/schedule/academ').text
+```
+
+Если все сделано правильно, то после выполнения команды `pipenv run start` в консоле должен появиться код страницы с расписанием на ближайший месяц.

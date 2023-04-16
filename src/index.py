@@ -1,19 +1,17 @@
-import requests
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from get_schedule_html import get_schedule_html
 
 def handler():
-    print('requesting synergy site page...')
+    # вычисляем начало текущего дня (на компьютере)
+    fromDate = datetime.today().replace(hour = 0, minute = 0)
+    # вычисляем конец дня ровно через месяц от текущего
+    toDate = (datetime.today() + relativedelta(months = 1)).replace(hour = 23, minute = 59)
 
-    # делаем GET запрос по адресу synergy.ru, используя HTTPS протокол
-    response = requests.get('https://synergy.ru')
+    # запрашиваем html-код страницы расписания в выбранном окне
+    schedule_html = get_schedule_html(fromDate, toDate)
 
-    # проверяем статус ответа (в случае успеха должен быть 200)
-    if response.status_code != 200:
-        print('request failed with code: ', response.status_code)
-
-    print('success!')
-    print('page html code:')
-    # выводим в косоль содержание ответа
-    print(response.content)
+    print(schedule_html)
 
 # вызываем функцию handler() при вызове файла
 if __name__ == '__main__':

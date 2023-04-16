@@ -5,6 +5,8 @@ name = "pypi"
 
 [packages]
 requests = "*"
+datetime = "*"
+python-dateutil = "*"
 
 [dev-packages]
 
