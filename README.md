@@ -89,7 +89,7 @@ os.getenv('LMS_USERNAME')
 
 ## 2.2. Определение окна расписания для запроса
 
-Установим пакеты `datetime` и `dateutil`
+Установим пакеты `datetime` и `dateutil`.
 
 ```bash
 pipenv install datetime
@@ -176,3 +176,172 @@ def get_schedule_html(fromDate: date, toDate: date):
 ```
 
 Если все сделано правильно, то после выполнения команды `pipenv run start` в консоле должен появиться код страницы с расписанием на ближайший месяц.
+
+# 3. Получение списка занятий
+
+## 3.1. Парсинг строчек с расписанием
+
+Установим пакет `bs4`:
+
+```bash
+pipenv install bs4
+```
+
+Создадим файл `get_lection_list.py` в папке `src` с таким содержимым:
+
+```python
+from datetime import datetime, date, timedelta
+from typing import List
+from bs4 import BeautifulSoup, Tag
+from get_schedule_html import get_schedule_html
+
+# парсим строки с датой и временем и получаем экземпляр класса datetime
+def parse_date(date, time):
+    # разбиваем строку на массив значений и берем первые два элемента как часы и минуты
+    hours, minutes = time.split(':')
+    # разбиваем строку на массив значений и берем первые три элемента как день, месяц и год
+    day, month, year= date.split('.')
+
+    # создаем экземпляр класса datetime
+    return datetime(2000 + int(year), int(month), int(day), int(hours), int(minutes))
+
+
+class Lection:
+    # объявляем конструктор класса Lection
+    def __init__(self, datePreview: str, timeInterval: str, lectionName: str, place: str, lectionType: str, teacher: str):
+        # достаем из времени расписания дату путем разбивания строки по запятой на масив значений
+        # и запоминания первого элемента
+        date, _ = datePreview.split(', ')
+
+        # если в "столбце" времени занятия есть " - ", то значит что это интервал занятия
+        if " - " in timeInterval:
+            # извлекаем из него время начала и конца, путем разбивания строки на массив значений
+            timeFrom, timeTo = timeInterval.split(' - ')
+
+            # заполняем в экземпляре класса Lection время начала и окончания занятия
+            self.dateFrom = parse_date(date, timeFrom)
+            self.dateTo = parse_date(date, timeTo)
+        else:
+            # когда пришел не интервал, а только одно значение
+            timeFrom = timeInterval
+
+            # заполняем в экземпляре класса Lection время начала и окончания занятия
+            self.dateFrom = parse_date(date, timeFrom)
+            self.dateTo = parse_date(date, timeFrom) + timedelta(minutes= 45)
+
+        # заполняем в экземпляре класса Lection название, помещение, тип и преподавателя
+        self.lectionName = lectionName
+        self.place = place
+        self.lectionType = lectionType
+        self.teacher = teacher
+
+    # если мы попытаемся прокинуть экземпляр класса Lection в метод print()
+    # то для того чтобы получить его строковое представление, движок питона вызовет этот метод
+    def __str__(self):
+        # выводим строчку со значениями лекции
+        # датой в формате день.меся.год
+        # временем в формате часы:минуты
+        # и остальной информацией
+
+        # здесь мы используем шаблонные строки, для компоновки данных в строку
+        return f'{self.dateFrom.strftime("%d.%m.%y %a")} {self.dateFrom.strftime("%H:%M")} - {self.dateTo.strftime("%H:%M")} {self.lectionName} ({self.lectionType}) {self.place} {self.teacher}'
+
+
+# нормализуем содержимое тега и приводим его в строку со значениями
+def parse_tag(tag: Tag):
+    # split() разбивает исходную строку на массив значений
+    # это нужно для того чтобы разом вычистить все лишние пробелы и табуляции
+    # ' '.join() приводит массив значений в строку которая состоит из значений
+    # разделенных пробелом
+    return ' '.join(tag.text.split())
+
+
+def html_to_lection_list(html: str):
+    # создаем экземляр класса BeautifulSoup, в качестве аргумента
+    # передавая html-код страницы с расписанием.
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # библиотека BeautifulSoup позволяем извлекать нужные
+    # данные из html-кода
+    # здесь мы говорим что хотим извлечь все тэги <tr>,
+    # которые лежат внутри любого тега с id="dictionaryTable"
+    rows = soup.select('#dictionaryTable > tr')
+
+    lastDatePreview = None
+    lection_list: List[Lection] = []
+
+    # проходимся по всем тегам <tr> что мы извлекли,
+    # и парсим значение
+    for row in rows:
+        # парсим содержимое тега
+        parsed_value_list = map(parse_tag, list(row.children))
+        # выфильтровываем все пустые значения
+        filtered_value_list = [child for child in parsed_value_list if child != '']
+
+        if len(filtered_value_list) == 1:
+            # если в строке только один "столбец" то это дата дня
+            # запоминаем ее
+            lastDatePreview = filtered_value_list[0]
+        else:
+            # если в строке не один "столбец" то это данные о занятии.
+            # создаем экземпляр класса Lection на основе запомненной даты
+            # и "сырой" информации о занятии
+            # прокидываем в конструктор Lection дату и все "столбцы",
+            # каждый отдельно, используя spread оператор *
+            lection_list.append(Lection(lastDatePreview, *filtered_value_list))
+
+    # сортируем список занятий по дате начала
+    # в качестве ключа прокидываем лямбда (анонимную) функцию, которая
+    # возвращает значение, по которому будет происходить сортировка
+    lection_list.sort(key = lambda lection: lection.dateFrom)
+
+    return lection_list
+
+
+def get_lection_list(fromDate: date, toDate: date):
+    # получаем html-код страницы с расписанием в выбранном окне
+    html = get_schedule_html(fromDate, toDate)
+    # получаем список занятий из html-кода страницы
+    lection_list = html_to_lection_list(html)
+
+    return lection_list
+```
+
+Перепишем код файла `index.py` на этот:
+
+```python
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from get_lection_list import get_lection_list
+
+def handler():
+    # вычисляем начало текущего дня (на компьютере)
+    fromDate = datetime.today().replace(hour = 0, minute = 0)
+    # вычисляем конец дня ровно через месяц от текущего
+    toDate = (datetime.today() + relativedelta(months = 1)).replace(hour = 23, minute = 59)
+
+    # запрашиваем список занятий
+    lection_list = get_lection_list(fromDate, toDate)
+
+    print('schedule parsed:')
+    # итерируемся по списку занятий и выводим его в консоль.
+    # для того чтобы получить не только значения, но еще индекс
+    # используем функцию enumerate(), которая оборачивает каждый
+    # элемент массива в массив и первым элементом кладет в него индекс
+    for index, item in enumerate(lection_list):
+        print(f'{index + 1}. {item}')
+
+# вызываем функцию handler() при вызове файла
+if __name__ == '__main__':
+    handler()
+```
+
+Если все сделано правильно, то при запуске кода в консоль выведется список занятий на ближайший месяц, похожий на этот:
+
+```
+1. 19.04.23 Wed 10:10 - 11:40 Командная работа и лидерство (зст) (Вебинар) 0 Машарина А.Ф.
+2. 19.04.23 Wed 11:50 - 13:20 Командная работа и лидерство (л) (Вебинар) 0 Машарина А.Ф.
+3. 20.04.23 Thu 13:50 - 15:20 Программирование на языке Python (лр) (Вебинар) 0 Терехова Л.А.
+4. 20.04.23 Thu 15:30 - 17:00 Программирование на языке С++ (лр) (Вебинар) 0 Мастяев Ф.А.
+5. 20.04.23 Thu 17:10 - 18:40 Программирование на языке С++ (л) (Вебинар) 0 Мастяев Ф.А.
+```

@@ -1,6 +1,6 @@
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from get_schedule_html import get_schedule_html
+from get_lection_list import get_lection_list
 
 def handler():
     # вычисляем начало текущего дня (на компьютере)
@@ -8,10 +8,16 @@ def handler():
     # вычисляем конец дня ровно через месяц от текущего
     toDate = (datetime.today() + relativedelta(months = 1)).replace(hour = 23, minute = 59)
 
-    # запрашиваем html-код страницы расписания в выбранном окне
-    schedule_html = get_schedule_html(fromDate, toDate)
+    # запрашиваем список занятий
+    lection_list = get_lection_list(fromDate, toDate)
 
-    print(schedule_html)
+    print('schedule parsed:')
+    # итерируемся по списку занятий и выводим его в консоль.
+    # для того чтобы получить не только значения, но еще индекс
+    # используем функцию enumerate(), которая оборачивает каждый
+    # элемент массива в массив и первым элементом кладет в него индекс
+    for index, item in enumerate(lection_list):
+        print(f'{index + 1}. {item}')
 
 # вызываем функцию handler() при вызове файла
 if __name__ == '__main__':
